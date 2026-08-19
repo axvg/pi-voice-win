@@ -1,6 +1,6 @@
 {
   "name": "pi-voice-win",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pi extension: hold Space to dictate (Windows only). Local STT with Parakeet TDT 0.6B v3 via sherpa-onnx. ES/EN + 23 more, auto-detected.",
   "type": "module",
   "license": "MIT",

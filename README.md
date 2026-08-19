@@ -23,20 +23,41 @@ If `@juicesharp/rpiv-voice` is installed, remove it. Both register `/voice`.
 | Hold Space on an empty prompt | footer shows `● REC ▃`. Release and the transcript is inserted |
 | Tap Space | a space |
 | `/voice` | start or stop recording by hand |
+| `/voice devices` | list microphones |
 
 How the hold works. Terminals don't report key-up, so the extension watches key-repeat. The first Space types a space, as usual. Once repeats arrive it deletes that space and opens the mic. When repeats stop for 350 ms it closes the mic and transcribes. Keep OS key-repeat on. In terminals that speak the kitty keyboard protocol (Windows Terminal 1.22+, WezTerm, Ghostty) pi receives a real key-up and recording stops at once.
 
-Decoding blocks the UI for about a quarter of the audio length. A ten second sentence freezes the prompt for 2.5 s. Acceptable for now, and marked in the code as the first thing to move to a worker thread.
+While recording the footer shows a rolling waveform of the last 2.4 s. During the repeat warmup it says "keep holding…".
+
+Decoding runs inline by default and blocks the UI for about a quarter of the audio length. A ten second sentence freezes the prompt for 2.5 s. Set `"decode": "worker"` to move it to a worker thread. The prompt stays responsive, at the cost of a second copy of the model in RAM (about 1 GB).
 
 ## Config
 
 Optional, at `~/.pi/agent/pi-voice-win.json`:
 
 ```json
-{ "model": "parakeet-v3", "threads": 4, "releaseMs": 350, "warmupRepeats": 2 }
+{
+  "model": "parakeet-v3",
+  "decode": "inline",
+  "threads": 4,
+  "device": "headset",
+  "releaseMs": 350,
+  "warmupRepeats": 2,
+  "maxSec": 60
+}
 ```
 
+All keys optional.
+
 `model` is `parakeet-v3` (default) or `canary-180m`. Canary is a third of the size and faster, covers en/es/de/fr, but cannot detect the language, so set `"language": "es"` with it.
+
+`decode` is `inline` (default) or `worker`. See above.
+
+`threads` defaults to half the logical CPUs, at least 2. More than that gains little with int8 and starves pi while decoding.
+
+`device` is a case-insensitive substring of the microphone name. `/voice devices` lists them. Default is the system input.
+
+`maxSec` stops a recording on its own after that many seconds, in case the hold never releases. Default 60.
 
 `releaseMs` is the gap between key-repeats that counts as a release. Raise it if recording cuts out mid sentence. Windows' slowest repeat rate is 500 ms.
 
