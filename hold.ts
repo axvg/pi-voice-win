@@ -3,6 +3,7 @@ export interface HoldEvents {
 	typeSpace(): void; // a plain Space should reach the editor
 	start(warmupSpacesTyped: number): void; // held: remove the typed spaces, open mic
 	stop(): void; // called after start when the key goes up
+	cancel?(): void; // warmup ended without a hold (tap, other key, or real key-up)
 }
 export interface HoldOpts {
 	initialDelayMs: number; // max wait for first repeat (Windows: <=1000 ms)
@@ -51,7 +52,9 @@ export class HoldDetector {
 
 	/** Any other key cancels a pending warmup (it was a tap). Does not stop a hold. */
 	otherKey(): void {
-		if (!this.holding) this.reset();
+		if (this.holding || this.timer === undefined) return;
+		this.reset();
+		this.ev.cancel?.();
 	}
 
 	/** True while Space presses should be swallowed (hold active). */
@@ -67,6 +70,7 @@ export class HoldDetector {
 		const was = this.holding;
 		this.reset();
 		if (was) this.ev.stop();
+		else this.ev.cancel?.();
 	}
 	private reset() {
 		(this.o.clearTimeout ?? clearTimeout)(this.timer as any);
@@ -85,7 +89,12 @@ if (process.argv[1] && /hold\.ts$/.test(process.argv[1])) {
 		let pending: { fn: () => void; at: number }[] = [];
 		let t = 0;
 		const d = new HoldDetector(
-			{ typeSpace: () => log.push("sp"), start: (n) => log.push(`start${n}`), stop: () => log.push("stop") },
+			{
+				typeSpace: () => log.push("sp"),
+				start: (n) => log.push(`start${n}`),
+				stop: () => log.push("stop"),
+				cancel: () => log.push("cancel"),
+			},
 			{
 				initialDelayMs: 1100,
 				releaseMs: 350,
@@ -115,15 +124,15 @@ if (process.argv[1] && /hold\.ts$/.test(process.argv[1])) {
 		advance(t + 5000);
 		return log.join(",");
 	};
-	// single tap -> plain space
-	assert.equal(run([0]), "sp");
+	// single tap -> plain space, warmup cancelled after the initial delay
+	assert.equal(run([0]), "sp,cancel");
 	// hold: first press, repeats at 500 ms then every 30 ms -> start after 2 repeats, stop 350 ms after last
 	const held = [0, 500, 530, 560, 590, 620];
 	assert.equal(run(held), "sp,sp,start2,stop");
 	// tap then other key during warmup -> no start
 	assert.equal(
 		run([0], (d) => d.otherKey()),
-		"sp",
+		"sp,cancel",
 	);
 	// two deliberate taps 200 ms apart (fast typist) count as repeats -> start. Known ceiling: warmupRepeats.
 	assert.equal(run([0, 200, 400]), "sp,sp,start2,stop");
@@ -138,7 +147,7 @@ if (process.argv[1] && /hold\.ts$/.test(process.argv[1])) {
 	// kitty: press + release with no repeats -> plain space
 	assert.equal(
 		run([0], (d) => d.release()),
-		"sp",
+		"sp,cancel",
 	);
 	console.log("hold.ts ok");
 }

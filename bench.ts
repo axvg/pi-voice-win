@@ -1,5 +1,5 @@
 // bench.ts: `npx tsx bench.ts [parakeet-v3|canary-180m] [file.wav]` prints text and RTF. Downloads the model if missing.
-import { createStt, ensureModel, type ModelName } from "./stt.js";
+import { createStt, ensureModel, type ModelName } from "./stt.ts";
 const name = (process.argv[2] ?? "parakeet-v3") as ModelName;
 const dir = await ensureModel(name, (m) => process.stderr.write(`\r${m}   `));
 const mod: any = await import("sherpa-onnx-node");
