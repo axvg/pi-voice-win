@@ -248,7 +248,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("voice", {
 		description: "Toggle voice recording. `/voice devices` lists microphones",
-		handler: async (ctx, args) => {
+		handler: async (args, ctx) => {
 			if (args?.trim() === "devices") {
 				const Decibri = await loadDecibri();
 				const list = (Decibri.devices?.() ?? []) as { name: string; isDefault: boolean; defaultSampleRate: number }[];
