@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pi-voice-win</title>
+<meta name="description" content="Hold Space to dictate in the pi coding agent. Windows-native, offline, Spanish and English.">
+<style>
+  :root { --fg: #1b1b1b; --muted: #5c5c5c; --bg: #fbfaf7; --line: #ddd9d0; --accent: #0b57d0; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e6e3dc; --muted: #9b978e; --bg: #161616; --line: #2c2a26; --accent: #8ab4f8; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.55 Georgia, "Times New Roman", serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 56px 20px 80px; }
+  h1 { font: 700 34px/1.1 "Segoe UI", system-ui, sans-serif; margin: 0 0 8px; }
+  h2 { font: 600 20px/1.2 "Segoe UI", system-ui, sans-serif; margin: 40px 0 10px; }
+  p { margin: 0 0 14px; }
+  .sub { color: var(--muted); margin-bottom: 28px; }
+  img { width: 100%; border: 1px solid var(--line); border-radius: 6px; display: block; }
+  code, pre { font: 14.5px/1.5 Consolas, "Cascadia Mono", ui-monospace, monospace; }
+  pre { background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; overflow-x: auto; margin: 0 0 14px; }
+  code { background: rgba(127,127,127,.12); padding: 1px 5px; border-radius: 3px; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 0 0 14px; font-size: 15.5px; }
+  td, th { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font: 600 13px "Segoe UI", system-ui, sans-serif; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  a { color: var(--accent); }
+  .win { display: inline-block; font: 600 12px/1 "Segoe UI", system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; border: 1px solid var(--line); padding: 5px 8px; border-radius: 4px; color: var(--muted); margin-bottom: 18px; }
+  footer { margin-top: 56px; color: var(--muted); font-size: 14px; }
+  ul { padding-left: 22px; }
+  li { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <span class="win">Windows only</span>
+  <h1>pi-voice-win</h1>
+  <p class="sub">Hold Space, talk, let go. The words land in your <a href="https://github.com/badlogic/pi-mono">pi</a> prompt. Nothing leaves the machine.</p>
+
+  <img src="demo.gif" alt="pi footer going from 'keep holding' to a REC waveform to the transcribed sentence in the prompt" width="900" height="260">
+
+  <h2>Install</h2>
+  <pre><code>pi install git:github.com/axvg/pi-voice-win</code></pre>
+  <p>First session downloads the model (487 MB) into <code>~/.pi/models/</code>. After that it works offline. You need Git for Windows, which pi already requires.</p>
+
+  <h2>Why another one</h2>
+  <p>I tried the existing pi dictation extensions on Windows. The ones that run offline either wanted <code>sox</code> or <code>ffmpeg</code> on PATH, or shipped Whisper base, which mishears Spanish and invents "thanks for watching" in silence. The rest need an API key.</p>
+  <p>This one captures audio through WASAPI directly (via <a href="https://www.npmjs.com/package/decibri">decibri</a>), and decodes with NVIDIA's <a href="https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3">Parakeet TDT 0.6B v3</a> through sherpa-onnx. Parakeet picks the language itself across 25 of them, writes punctuation and casing, and returns an empty string for silence.</p>
+
+  <h2>Numbers</h2>
+  <p>Measured on a Ryzen 5 2400G, no GPU, int8 model:</p>
+  <table>
+    <tr><th>Model load</th><td>3.4 s, once per session</td></tr>
+    <tr><th>5 s Spanish phrase</th><td>1.35 s to text (RTF 0.25)</td></tr>
+    <tr><th>RAM</th><td>about 1 GB</td></tr>
+    <tr><th>Disk</th><td>640 MB</td></tr>
+    <tr><th>Hold warmup</th><td>2 key-repeats, about 0.55 s</td></tr>
+  </table>
+
+  <h2>How the hold works</h2>
+  <p>Terminals don't send key-up, so the extension watches key-repeat. The first Space types a space as usual. Once repeats arrive it deletes that space and opens the mic. When repeats stop for 350 ms it closes the mic and transcribes. Windows Terminal 1.22+, WezTerm and Ghostty speak the kitty keyboard protocol, and there pi receives a real key-up, so recording stops the instant you let go.</p>
+
+  <h2>Settings</h2>
+  <p>Optional file at <code>~/.pi/agent/pi-voice-win.json</code>. Every key has a default.</p>
+  <table>
+    <tr><th>model</th><td><code>parakeet-v3</code> (auto language) or <code>canary-180m</code> (smaller, en/es/de/fr, needs <code>language</code>)</td></tr>
+    <tr><th>live</th><td>on. Words appear while you hold; each phrase is re-decoded every second and committed after 700 ms of silence</td></tr>
+    <tr><th>decode</th><td><code>worker</code> (default) keeps the prompt responsive. <code>inline</code> is only allowed with <code>live: false</code></td></tr>
+    <tr><th>threads</th><td>half the logical CPUs by default</td></tr>
+    <tr><th>device</th><td>substring of the mic name. <code>/voice devices</code> lists them</td></tr>
+    <tr><th>releaseMs</th><td>350. Raise if recording cuts out mid sentence</td></tr>
+    <tr><th>maxSec</th><td>60. Hard stop if the hold never releases</td></tr>
+  </table>
+
+  <h2>What it does not do</h2>
+  <ul>
+    <li>macOS or Linux. The mic path is WASAPI and the tar path is Git's. Not planned.</li>
+    <li>Coexist with another custom editor (vim mode). It replaces the editor component.</li>
+  </ul>
+
+  <footer>
+    <a href="https://github.com/axvg/pi-voice-win">Source on GitHub</a> · MIT · The GIF is rendered with <a href="https://github.com/charmbracelet/vhs">vhs</a> from a scripted stand-in of the footer, timings taken from real runs.
+  </footer>
+</main>
+</body>
+</html>

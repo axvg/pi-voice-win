@@ -29,7 +29,7 @@ How the hold works. Terminals don't report key-up, so the extension watches key-
 
 While recording the footer shows a rolling waveform of the last 2.4 s. During the repeat warmup it says "keep holding…".
 
-Decoding runs inline by default and blocks the UI for about a quarter of the audio length. A ten second sentence freezes the prompt for 2.5 s. Set `"decode": "worker"` to move it to a worker thread. The prompt stays responsive, at the cost of a second copy of the model in RAM (about 1 GB).
+Words show up while you hold. Every second the current phrase is re-decoded and written to the prompt; once a phrase ends in 700 ms of silence it is committed and the next one starts. Decoding runs in a worker thread so the prompt never freezes. Set `"live": false` to decode only on release (then `"decode": "inline"` also becomes an option, which blocks the UI for about a quarter of the audio length).
 
 ## Config
 
@@ -38,7 +38,9 @@ Optional, at `~/.pi/agent/pi-voice-win.json`:
 ```json
 {
   "model": "parakeet-v3",
-  "decode": "inline",
+  "decode": "worker",
+  "live": true,
+  "liveMs": 1000,
   "threads": 4,
   "device": "headset",
   "releaseMs": 350,
@@ -51,7 +53,9 @@ All keys optional.
 
 `model` is `parakeet-v3` (default) or `canary-180m`. Canary is a third of the size and faster, covers en/es/de/fr, but cannot detect the language, so set `"language": "es"` with it.
 
-`decode` is `inline` (default) or `worker`. See above.
+`decode` is `worker` (default) or `inline`. `live` forces `worker`.
+
+`live` shows partial text while holding. `liveMs` is how often the open phrase is re-decoded.
 
 `threads` defaults to half the logical CPUs, at least 2. More than that gains little with int8 and starves pi while decoding.
 
