@@ -1,4 +1,4 @@
-// mic-test.ts: records N seconds from the default mic and prints the transcript. `npx tsx mic-test.ts 4`
+// npx tsx mic-test.ts [seconds]
 import { createStt, ensureModel } from "./stt.ts";
 const mod: any = await import("decibri"); const Decibri = mod.default ?? mod;
 console.error("devices:", Decibri.devices?.().map((d: any) => `${d.isDefault ? "*" : " "}${d.name}@${d.defaultSampleRate}`).join(" | "));

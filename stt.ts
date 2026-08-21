@@ -1,4 +1,3 @@
-// stt.ts: model download and sherpa-onnx recognizer. Windows only.
 import { execFileSync } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
@@ -7,7 +6,6 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 export const MODELS = {
-	// 25 langs, auto-detect, punctuation+case. ~640 MB, ~1 GB RAM, RTF ~0.3 on 4 cores.
 	"parakeet-v3": {
 		url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
 		dir: "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
@@ -20,7 +18,6 @@ export const MODELS = {
 			modelType: "nemo_transducer",
 		}),
 	},
-	// en/es/de/fr, 180M params, faster + smaller, but language must be set (no auto-detect).
 	"canary-180m": {
 		url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8.tar.bz2",
 		dir: "sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8",
@@ -95,14 +92,13 @@ export async function createStt(name: ModelName, dir: string, lang?: string, num
 	let recognizer = new ns.OfflineRecognizer(build(lang));
 	return {
 		recognize(samples) {
-			if (samples.length < 1600) return ""; // <100 ms
+			if (samples.length < 1600) return "";
 			const s = recognizer.createStream();
 			s.acceptWaveform({ samples, sampleRate: 16000 });
 			recognizer.decode(s);
 			return String(recognizer.getResult(s).text ?? "").trim();
 		},
 		setLanguage(l) {
-			// ponytail: canary needs rebuild; parakeet ignores lang (auto-detect).
 			if (name === "canary-180m") recognizer = new ns.OfflineRecognizer(build(l));
 		},
 	};

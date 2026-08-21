@@ -1,14 +1,14 @@
-// hold.ts: key-repeat based "hold Space" detector. Pure, no I/O. Self-check: `npx tsx hold.ts`.
+// Key-repeat based hold detector. Self-check: `npx tsx hold.ts`.
 export interface HoldEvents {
-	typeSpace(): void; // a plain Space should reach the editor
-	start(warmupSpacesTyped: number): void; // held: remove the typed spaces, open mic
-	stop(): void; // called after start when the key goes up
-	cancel?(): void; // warmup ended without a hold (tap, other key, or real key-up)
+	typeSpace(): void;
+	start(warmupSpacesTyped: number): void;
+	stop(): void;
+	cancel?(): void;
 }
 export interface HoldOpts {
-	initialDelayMs: number; // max wait for first repeat (Windows: <=1000 ms)
-	releaseMs: number; // gap between repeats meaning "released" (Windows slowest repeat: 500 ms)
-	warmupRepeats: number; // repeats needed before start()
+	initialDelayMs: number;
+	releaseMs: number;
+	warmupRepeats: number;
 	now?: () => number;
 	setTimeout?: (fn: () => void, ms: number) => unknown;
 	clearTimeout?: (t: unknown) => void;
@@ -124,19 +124,14 @@ if (process.argv[1] && /hold\.ts$/.test(process.argv[1])) {
 		advance(t + 5000);
 		return log.join(",");
 	};
-	// single tap -> plain space, warmup cancelled after the initial delay
 	assert.equal(run([0]), "sp,cancel");
-	// hold: first press, repeats at 500 ms then every 30 ms -> start after 2 repeats, stop 350 ms after last
 	const held = [0, 500, 530, 560, 590, 620];
 	assert.equal(run(held), "sp,sp,start2,stop");
-	// tap then other key during warmup -> no start
 	assert.equal(
 		run([0], (d) => d.otherKey()),
 		"sp,cancel",
 	);
-	// two deliberate taps 200 ms apart (fast typist) count as repeats -> start. Known ceiling: warmupRepeats.
 	assert.equal(run([0, 200, 400]), "sp,sp,start2,stop");
-	// kitty: press, repeats, then a real release -> stop right away (no 350 ms wait)
 	assert.equal(
 		run([0, 500, 530], (d, log) => {
 			d.release();
@@ -144,7 +139,6 @@ if (process.argv[1] && /hold\.ts$/.test(process.argv[1])) {
 		}),
 		"sp,sp,start2,stop,t0",
 	);
-	// kitty: press + release with no repeats -> plain space
 	assert.equal(
 		run([0], (d) => d.release()),
 		"sp,cancel",

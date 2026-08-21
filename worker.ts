@@ -1,5 +1,4 @@
-// worker.ts: decodes off the main thread when config has "decode": "worker".
-// Runs under Node's built-in type stripping, so imports use explicit .ts paths.
+// Decoder thread. Runs under Node's type stripping, hence the .ts import.
 import { parentPort, workerData } from "node:worker_threads";
 import { createStt, type ModelName } from "./stt.ts";
 

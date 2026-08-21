@@ -1,12 +1,4 @@
-/**
- * pi-voice-win: hold Space on an empty prompt to dictate, like Claude Code. Windows only.
- *
- * Hold detection: most terminals send no key-up, so we watch key-repeat. The first Space
- * types a space as usual. Once repeats arrive the space is removed and the mic opens. When
- * repeats stop for `releaseMs` the mic closes and the transcript is inserted. Terminals
- * with the kitty keyboard protocol deliver a real key-up and stop at once.
- * Fallback: `/voice` toggles recording for terminals without key-repeat.
- */
+// pi-voice-win: hold Space on an empty prompt to dictate. Windows only.
 import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isKeyRelease, matchesKey } from "@earendil-works/pi-tui";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
@@ -18,68 +10,91 @@ import { createStt, ensureModel, type ModelName } from "./stt.ts";
 
 interface Config {
 	model: ModelName;
-	language?: string; // only canary-180m uses it; parakeet auto-detects
-	threads: number; // default: half the logical CPUs, at least 2
-	decode: "inline" | "worker"; // inline blocks the UI ~0.25x audio length; worker keeps it responsive, costs ~1 GB more RAM
-	device?: string; // mic name substring, e.g. "headset". Default: system default input. `/voice devices` lists them
-	releaseMs: number; // gap between key-repeats that means "released". Windows slowest repeat rate is 500 ms
-	warmupRepeats: number; // repeats before the mic opens. Two quick taps on an empty prompt also count
-	maxSec: number; // hard stop, in case the hold never releases
+	language?: string;
+	threads: number;
+	decode: "inline" | "worker";
+	live: boolean;
+	liveMs: number;
+	device?: string;
+	releaseMs: number;
+	warmupRepeats: number;
+	maxSec: number;
 }
+
 const CONFIG_PATH = join(homedir(), ".pi", "agent", "pi-voice-win.json");
 const cfg: Config = {
 	model: "parakeet-v3",
 	threads: Math.max(2, Math.floor(cpus().length / 2)),
-	decode: "inline",
+	decode: "worker",
+	live: true,
+	liveMs: 1000,
 	releaseMs: 350,
 	warmupRepeats: 2,
 	maxSec: 60,
 	...(existsSync(CONFIG_PATH) ? JSON.parse(readFileSync(CONFIG_PATH, "utf8")) : {}),
 };
+if (cfg.live) cfg.decode = "worker";
 
-const LOG = process.env.PI_VOICE_LOG; // debug: append key and status events to this file
+const LOG = process.env.PI_VOICE_LOG;
 const log = (m: string) => LOG && appendFileSync(LOG, `${new Date().toISOString()} ${m}\n`);
 
-// mic
+// ---- microphone (int16 mono 16 kHz, 100 ms chunks) ----
+
 interface Mic {
-	stop(): Promise<Float32Array>;
-	level(): number; // rms of the last chunk, 0..1
+	chunks: Buffer[];
+	level(): number;
+	stop(): Promise<void>;
 }
+
 async function loadDecibri(): Promise<any> {
 	const mod = (await import("decibri")) as any;
 	return mod.default ?? mod;
 }
+
+function rms(b: Buffer): number {
+	let acc = 0;
+	for (let i = 0; i + 1 < b.length; i += 2) {
+		const v = b.readInt16LE(i) / 32768;
+		acc += v * v;
+	}
+	return Math.sqrt(acc / (b.length / 2));
+}
+
+function toFloat(chunks: Buffer[]): Float32Array {
+	const all = Buffer.concat(chunks);
+	const out = new Float32Array(all.length / 2);
+	for (let i = 0; i < out.length; i++) out[i] = all.readInt16LE(i * 2) / 32768;
+	return out;
+}
+
 async function openMic(): Promise<Mic> {
 	const Decibri = await loadDecibri();
 	const chunks: Buffer[] = [];
-	let rms = 0;
-	const mic = new Decibri({ sampleRate: 16000, channels: 1, framesPerBuffer: 1600, ...(cfg.device ? { device: cfg.device } : {}) });
+	let last = 0;
+	const mic = new Decibri({
+		sampleRate: 16000,
+		channels: 1,
+		framesPerBuffer: 1600,
+		...(cfg.device ? { device: cfg.device } : {}),
+	});
 	mic.on("data", (b: Buffer) => {
 		chunks.push(b);
-		let acc = 0;
-		for (let i = 0; i + 1 < b.length; i += 2) {
-			const v = b.readInt16LE(i) / 32768;
-			acc += v * v;
-		}
-		rms = Math.sqrt(acc / (b.length / 2));
+		last = rms(b);
 	});
 	await new Promise<void>((res, rej) => {
 		mic.once("data", () => res());
 		mic.once("error", rej);
-		setTimeout(res, 1500); // ponytail: optimistic start; a device error after this only shows up as silence
+		setTimeout(res, 1500);
 	});
 	return {
-		level: () => rms,
+		chunks,
+		level: () => last,
 		stop: () =>
 			new Promise((res) => {
 				let done = false;
 				const finish = () => {
-					if (done) return;
+					if (!done) res();
 					done = true;
-					const all = Buffer.concat(chunks);
-					const out = new Float32Array(all.length / 2);
-					for (let i = 0; i < out.length; i++) out[i] = all.readInt16LE(i * 2) / 32768;
-					res(out);
 				};
 				mic.once("close", finish);
 				mic.once("end", finish);
@@ -89,10 +104,12 @@ async function openMic(): Promise<Mic> {
 	};
 }
 
-// decoder: inline (sync, blocks UI) or worker thread
+// ---- decoder ----
+
 interface Decoder {
 	recognize(samples: Float32Array): Promise<string>;
 }
+
 async function createDecoder(dir: string): Promise<Decoder> {
 	if (cfg.decode !== "worker") {
 		const stt = await createStt(cfg.model, dir, cfg.language, cfg.threads);
@@ -124,18 +141,22 @@ async function createDecoder(dir: string): Promise<Decoder> {
 	};
 }
 
-// shared state
+// ---- session ----
+
 let ctxRef: ExtensionContext | undefined;
 let decoderPromise: Promise<Decoder> | undefined;
 let mic: Mic | undefined;
 let meter: NodeJS.Timeout | undefined;
 let maxTimer: NodeJS.Timeout | undefined;
+let committed = "";
+let openFrom = 0;
 let insert: ((text: string) => void) | undefined;
+let show: ((text: string) => void) | undefined;
 
-const status = (s?: string) => {
+function status(s?: string) {
 	log(`status ${s ?? "-"}`);
 	ctxRef?.ui.setStatus("voice", s);
-};
+}
 
 function loadDecoder(): Promise<Decoder> {
 	decoderPromise ??= (async () => {
@@ -154,6 +175,8 @@ function loadDecoder(): Promise<Decoder> {
 }
 
 const BARS = "▁▂▃▄▅▆▇█";
+const SILENCE_RMS = 0.012;
+
 async function startRecording() {
 	if (mic) return;
 	try {
@@ -171,6 +194,35 @@ async function startRecording() {
 	}, 100);
 	maxTimer = setTimeout(() => void stopRecording(), cfg.maxSec * 1000);
 	status("● REC");
+	if (cfg.live) void liveLoop(mic);
+}
+
+// Re-decode the open phrase every liveMs. A phrase commits after ~700 ms of silence,
+// so each decode covers one phrase rather than the whole recording.
+async function liveLoop(m: Mic) {
+	committed = "";
+	openFrom = 0;
+	let partial = "";
+	while (mic === m) {
+		await new Promise((r) => setTimeout(r, cfg.liveMs));
+		if (mic !== m || !decoderPromise) continue;
+		const open = m.chunks.slice(openFrom);
+		if (open.length < 5) continue;
+		const quiet = open.slice(-7).every((b) => rms(b) < SILENCE_RMS);
+		try {
+			partial = await (await loadDecoder()).recognize(toFloat(open));
+			log(`partial ${JSON.stringify(partial)} ${open.length * 100}ms quiet=${quiet}`);
+		} catch {
+			continue;
+		}
+		if (mic !== m) break;
+		if (quiet) {
+			if (partial) committed = committed ? `${committed} ${partial}` : partial;
+			openFrom = m.chunks.length;
+			partial = "";
+		}
+		show?.([committed, partial].filter(Boolean).join(" "));
+	}
 }
 
 async function stopRecording() {
@@ -179,26 +231,29 @@ async function stopRecording() {
 	clearTimeout(maxTimer);
 	const m = mic;
 	mic = undefined;
-	const samples = await m.stop();
-	if (samples.length < 16000 * 0.3) return status(undefined); // under 300 ms: ignore
+	await m.stop();
+	const open = cfg.live ? m.chunks.slice(openFrom) : m.chunks;
+	if (open.length < 3 && !committed) return status(undefined);
 	status("voice: transcribing…");
-	const secs = (samples.length / 16000).toFixed(1);
 	try {
-		const text = await (await loadDecoder()).recognize(samples);
-		log(`text ${JSON.stringify(text)} (${secs}s)`);
-		if (text) insert?.(text);
+		const tail = open.length >= 3 ? await (await loadDecoder()).recognize(toFloat(open)) : "";
+		const text = cfg.live ? [committed, tail].filter(Boolean).join(" ") : tail;
+		log(`text ${JSON.stringify(text)} (${(m.chunks.length / 10).toFixed(1)}s)`);
+		if (cfg.live) show?.(text);
+		else if (text) insert?.(text);
 	} catch (e: any) {
 		ctxRef?.ui.notify(`voice: ${e.message}`, "error");
 	}
+	committed = "";
 	status(undefined);
 }
 
-// editor
-// Space as a plain char, or a kitty CSI-u sequence (codepoint 32) for press, repeat or release.
+// ---- editor ----
+
 const isSpace = (d: string) => d === " " || /^\x1b\[32(?:;[\d:]+)?u$/.test(d) || matchesKey(d, "space");
 
 class VoiceEditor extends CustomEditor {
-	wantsKeyRelease = true; // kitty protocol (Windows Terminal 1.22+, WezTerm, Ghostty): real key-up
+	wantsKeyRelease = true;
 	private hold = new HoldDetector(
 		{
 			typeSpace: () => {
@@ -216,16 +271,17 @@ class VoiceEditor extends CustomEditor {
 	);
 
 	handleInput(data: string): void {
-		if (LOG && isSpace(data)) log(`key ${JSON.stringify(data)} release=${isKeyRelease(data)} active=${this.hold.active}`);
+		if (LOG && isSpace(data)) log(`key ${JSON.stringify(data)} release=${isKeyRelease(data)}`);
 		if (isKeyRelease(data)) {
 			if (isSpace(data)) this.hold.release();
-			return; // the base editor never sees release events
+			return;
 		}
 		if (isSpace(data) && (this.hold.active || this.getText().trim() === "")) {
 			insert = (t) => {
 				const cur = this.getText();
 				this.setText(cur ? `${cur} ${t}` : t);
 			};
+			show = (t) => this.setText(t);
 			this.hold.space();
 			return;
 		}
@@ -234,7 +290,6 @@ class VoiceEditor extends CustomEditor {
 	}
 }
 
-// extension entry
 export default function (pi: ExtensionAPI) {
 	if (process.platform !== "win32") return;
 
@@ -242,8 +297,7 @@ export default function (pi: ExtensionAPI) {
 		ctxRef = ctx;
 		if (!ctx.hasUI) return;
 		ctx.ui.setEditorComponent((tui, theme, kb) => new VoiceEditor(tui, theme, kb));
-		// ponytail: replaces any other custom editor (vim mode). Wrap ctx.ui.getEditorComponent() if you need both.
-		void loadDecoder(); // warm the model so the first hold is instant
+		void loadDecoder();
 	});
 
 	pi.registerCommand("voice", {
@@ -257,6 +311,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 			insert ??= (t) => ctx.ui.setEditorText(t);
+			show ??= (t) => ctx.ui.setEditorText(t);
 			if (mic) await stopRecording();
 			else await startRecording();
 		},
