@@ -150,6 +150,8 @@ let meter: NodeJS.Timeout | undefined;
 let maxTimer: NodeJS.Timeout | undefined;
 let committed = "";
 let openFrom = 0;
+let opening = false;
+let stopAsked = false;
 let insert: ((text: string) => void) | undefined;
 let show: ((text: string) => void) | undefined;
 
@@ -178,13 +180,24 @@ const BARS = "▁▂▃▄▅▆▇█";
 const SILENCE_RMS = 0.012;
 
 async function startRecording() {
-	if (mic) return;
+	if (mic || opening) return;
+	opening = true;
+	let m: Mic;
 	try {
-		mic = await openMic();
+		m = await openMic();
 	} catch (e: any) {
+		opening = false;
+		stopAsked = false;
 		ctxRef?.ui.notify(`voice: microphone unavailable (${e.message})`, "error");
 		return;
 	}
+	opening = false;
+	if (stopAsked) {
+		stopAsked = false;
+		await m.stop();
+		return;
+	}
+	mic = m;
 	void loadDecoder();
 	const wave: number[] = [];
 	meter = setInterval(() => {
@@ -231,7 +244,10 @@ async function liveLoop(m: Mic) {
 }
 
 async function stopRecording() {
-	if (!mic) return;
+	if (!mic) {
+		if (opening) stopAsked = true;
+		return;
+	}
 	clearInterval(meter);
 	clearTimeout(maxTimer);
 	const m = mic;
