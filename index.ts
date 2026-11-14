@@ -347,8 +347,8 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify(lines.join("\n") || "no input devices", "info");
 				return;
 			}
-			insert ??= (t) => ctx.ui.setEditorText(t);
-			show ??= (t) => ctx.ui.setEditorText(t);
+			insert = (t) => ctx.ui.setEditorText(t);
+			show = (t) => ctx.ui.setEditorText(t);
 			if (mic) await stopRecording();
 			else await startRecording();
 		},
