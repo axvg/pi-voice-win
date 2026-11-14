@@ -1,9 +1,10 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { promisify } from "node:util";
 
 export const MODELS = {
 	"parakeet-v3": {
@@ -39,14 +40,14 @@ export const MODELS_ROOT = join(homedir(), ".pi", "models");
 export async function ensureModel(name: ModelName, onProgress?: (msg: string) => void): Promise<string> {
 	const m = MODELS[name];
 	const dir = join(MODELS_ROOT, m.dir);
-	if (existsSync(join(dir, "tokens.txt"))) return dir;
-	mkdirSync(MODELS_ROOT, { recursive: true });
 	const tmp = join(MODELS_ROOT, `${m.dir}.tar.bz2`);
+	if (existsSync(join(dir, "tokens.txt")) && !existsSync(tmp)) return dir;
+	mkdirSync(MODELS_ROOT, { recursive: true });
 	if (!existsSync(tmp)) await download(m.url, tmp, onProgress);
 	onProgress?.("extracting (bz2, a few minutes)…");
 	// System32\tar.exe (bsdtar) hangs on these archives; Git's GNU tar works. Pi needs Git Bash on Windows anyway.
 	const gitTar = "C:\\Program Files\\Git\\usr\\bin\\tar.exe";
-	execFileSync(existsSync(gitTar) ? gitTar : "tar", ["-xjf", tmp, "-C", MODELS_ROOT], { stdio: "ignore" });
+	await promisify(execFile)(existsSync(gitTar) ? gitTar : "tar", ["-xjf", tmp, "-C", MODELS_ROOT]);
 	rmSync(tmp, { force: true });
 	if (!existsSync(join(dir, "tokens.txt"))) throw new Error("extraction failed");
 	return dir;
