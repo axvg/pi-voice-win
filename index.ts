@@ -125,6 +125,7 @@ async function createDecoder(dir: string): Promise<Decoder> {
 	const worker = new Worker(new URL("./worker.ts", import.meta.url), {
 		workerData: { name: cfg.model, dir, lang: cfg.language, threads: cfg.threads },
 	});
+	decoderWorker = worker;
 	const pending = new Map<number, { res: (t: string) => void; rej: (e: Error) => void }>();
 	let id = 0;
 	await new Promise<void>((res, rej) => {
@@ -159,6 +160,7 @@ async function createDecoder(dir: string): Promise<Decoder> {
 
 let ctxRef: ExtensionContext | undefined;
 let decoderPromise: Promise<Decoder> | undefined;
+let decoderWorker: Worker | undefined;
 let mic: Mic | undefined;
 let meter: NodeJS.Timeout | undefined;
 let maxTimer: NodeJS.Timeout | undefined;
@@ -349,7 +351,9 @@ export default function (pi: ExtensionAPI) {
 		void loadDecoder();
 	});
 
-	pi.on("session_shutdown", () => {
+	pi.on("session_shutdown", (e) => {
+		ctxRef = undefined;
+		if (e.reason === "reload") void decoderWorker?.terminate();
 		if (!mic) {
 			if (opening) stopAsked = true;
 			return;
