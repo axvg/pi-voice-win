@@ -70,7 +70,7 @@ All keys optional.
 ## Dev
 
 ```sh
-npx tsx hold.ts                       # hold detector self-check
+npm test                              # hold detector self-check
 npx tsx bench.ts parakeet-v3 x.wav    # RTF on a wav file
 npx tsx mic-test.ts 4                 # record 4 s from the default mic, print the transcript
 pwsh -File e2e/hold-space.ps1         # launch pi, inject a held Space into its console, print the event log
