@@ -2,6 +2,8 @@
 
 Hold Space on an empty prompt in [pi](https://github.com/badlogic/pi-mono), talk, let go. The text lands in the prompt. Same gesture as Claude Code's voice mode, but everything runs on your CPU. Windows only.
 
+![Hold Space, speak, release: the transcript appears in the prompt](docs/demo.gif)
+
 The model is NVIDIA's [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) (int8, through sherpa-onnx). It picks the language on its own, 25 of them including Spanish and English, and writes punctuation and casing. On a Ryzen 5 2400G a 5 s phrase decodes in 1.3 s, the model loads in 3.4 s and uses about 1 GB of RAM. It also stays quiet on silence, which Whisper base never did.
 
 Microphone capture goes through [decibri](https://www.npmjs.com/package/decibri) (WASAPI via cpal) at 16 kHz mono.
@@ -74,6 +76,7 @@ npm test                              # hold detector self-check
 npx tsx bench.ts parakeet-v3 x.wav    # RTF on a wav file
 npx tsx mic-test.ts 4                 # record 4 s from the default mic, print the transcript
 pwsh -File e2e/hold-space.ps1         # launch pi, inject a held Space into its console, print the event log
+python demo/demo.py --cast docs/demo.cast && vhs demo/demo.tape   # rebuild the demo
 ```
 
 `PI_VOICE_LOG=path` makes the extension append key and status events to a file. The e2e script uses it.
