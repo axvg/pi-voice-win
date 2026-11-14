@@ -348,6 +348,18 @@ export default function (pi: ExtensionAPI) {
 		void loadDecoder();
 	});
 
+	pi.on("session_shutdown", () => {
+		if (!mic) {
+			if (opening) stopAsked = true;
+			return;
+		}
+		clearInterval(meter);
+		clearTimeout(maxTimer);
+		const m = mic;
+		mic = undefined;
+		void m.stop();
+	});
+
 	pi.registerCommand("voice", {
 		description: "Toggle voice recording. `/voice devices` lists microphones",
 		handler: async (args, ctx) => {
