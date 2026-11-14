@@ -206,10 +206,11 @@ async function liveLoop(m: Mic) {
 	while (mic === m) {
 		await new Promise((r) => setTimeout(r, cfg.liveMs));
 		if (mic !== m || !decoderPromise) continue;
-		const open = m.chunks.slice(openFrom);
+		const end = m.chunks.length;
+		const open = m.chunks.slice(openFrom, end);
 		if (open.length < 5) continue;
 		if (open.every((b) => rms(b) < SILENCE_RMS)) {
-			openFrom = m.chunks.length;
+			openFrom = end;
 			continue;
 		}
 		const quiet = open.slice(-7).every((b) => rms(b) < SILENCE_RMS);
@@ -222,7 +223,7 @@ async function liveLoop(m: Mic) {
 		if (mic !== m) break;
 		if (quiet) {
 			if (partial) committed = committed ? `${committed} ${partial}` : partial;
-			openFrom = m.chunks.length;
+			openFrom = end;
 			partial = "";
 		}
 		show?.([committed, partial].filter(Boolean).join(" "));
