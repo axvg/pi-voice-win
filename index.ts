@@ -161,18 +161,21 @@ function status(s?: string) {
 }
 
 function loadDecoder(): Promise<Decoder> {
-	decoderPromise ??= (async () => {
-		const dir = await ensureModel(cfg.model, (m) => status(`voice: ${m}`));
-		status("voice: loading model…");
-		const d = await createDecoder(dir);
-		status(undefined);
-		return d;
-	})();
-	decoderPromise.catch((e) => {
-		decoderPromise = undefined;
-		status(undefined);
-		ctxRef?.ui.notify(`voice: ${e.message}`, "error");
-	});
+	if (!decoderPromise) {
+		const p = (async () => {
+			const dir = await ensureModel(cfg.model, (m) => status(`voice: ${m}`));
+			status("voice: loading model…");
+			const d = await createDecoder(dir);
+			status(undefined);
+			return d;
+		})();
+		p.catch((e) => {
+			decoderPromise = undefined;
+			status(undefined);
+			ctxRef?.ui.notify(`voice: ${e.message}`, "error");
+		});
+		decoderPromise = p;
+	}
 	return decoderPromise;
 }
 
@@ -260,7 +263,12 @@ async function stopRecording() {
 	if (open.length < 3 && !done) return status(undefined);
 	status("voice: transcribing…");
 	try {
-		const tail = open.length >= 3 ? await (await loadDecoder()).recognize(toFloat(open)) : "";
+		let tail = "";
+		if (open.length >= 3) {
+			const d = await loadDecoder().catch(() => undefined);
+			if (!d) return status(undefined);
+			tail = await d.recognize(toFloat(open));
+		}
 		const text = cfg.live ? [done, tail].filter(Boolean).join(" ") : tail;
 		log(`text ${JSON.stringify(text)} (${(m.chunks.length / 10).toFixed(1)}s)`);
 		if (cfg.live) show?.(text);
