@@ -208,6 +208,10 @@ async function liveLoop(m: Mic) {
 		if (mic !== m || !decoderPromise) continue;
 		const open = m.chunks.slice(openFrom);
 		if (open.length < 5) continue;
+		if (open.every((b) => rms(b) < SILENCE_RMS)) {
+			openFrom = m.chunks.length;
+			continue;
+		}
 		const quiet = open.slice(-7).every((b) => rms(b) < SILENCE_RMS);
 		try {
 			partial = await (await loadDecoder()).recognize(toFloat(open));
@@ -232,7 +236,8 @@ async function stopRecording() {
 	const m = mic;
 	mic = undefined;
 	await m.stop();
-	const open = cfg.live ? m.chunks.slice(openFrom) : m.chunks;
+	let open = cfg.live ? m.chunks.slice(openFrom) : m.chunks;
+	if (open.every((b) => rms(b) < SILENCE_RMS)) open = [];
 	if (open.length < 3 && !committed) return status(undefined);
 	status("voice: transcribing…");
 	try {
