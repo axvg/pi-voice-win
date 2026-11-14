@@ -130,6 +130,7 @@ async function createDecoder(dir: string): Promise<Decoder> {
 	await new Promise<void>((res, rej) => {
 		worker.once("message", () => res());
 		worker.once("error", rej);
+		worker.once("exit", (c) => rej(new Error(`decoder worker exited (code ${c})`)));
 	});
 	worker.on("message", (m: { id: number; text?: string; error?: string }) => {
 		const p = pending.get(m.id);
