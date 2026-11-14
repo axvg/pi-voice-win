@@ -131,6 +131,12 @@ async function createDecoder(dir: string): Promise<Decoder> {
 		if (m.error) p.rej(new Error(m.error));
 		else p.res(m.text ?? "");
 	});
+	worker.on("error", () => {});
+	worker.on("exit", (code) => {
+		decoderPromise = undefined;
+		for (const p of pending.values()) p.rej(new Error(`decoder worker exited (code ${code})`));
+		pending.clear();
+	});
 	worker.unref();
 	return {
 		recognize: (samples) =>
