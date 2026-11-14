@@ -236,21 +236,22 @@ async function stopRecording() {
 	clearTimeout(maxTimer);
 	const m = mic;
 	mic = undefined;
+	const done = committed;
+	const from = openFrom;
 	await m.stop();
-	let open = cfg.live ? m.chunks.slice(openFrom) : m.chunks;
+	let open = cfg.live ? m.chunks.slice(from) : m.chunks;
 	if (open.every((b) => rms(b) < SILENCE_RMS)) open = [];
-	if (open.length < 3 && !committed) return status(undefined);
+	if (open.length < 3 && !done) return status(undefined);
 	status("voice: transcribing…");
 	try {
 		const tail = open.length >= 3 ? await (await loadDecoder()).recognize(toFloat(open)) : "";
-		const text = cfg.live ? [committed, tail].filter(Boolean).join(" ") : tail;
+		const text = cfg.live ? [done, tail].filter(Boolean).join(" ") : tail;
 		log(`text ${JSON.stringify(text)} (${(m.chunks.length / 10).toFixed(1)}s)`);
 		if (cfg.live) show?.(text);
 		else if (text) insert?.(text);
 	} catch (e: any) {
 		ctxRef?.ui.notify(`voice: ${e.message}`, "error");
 	}
-	committed = "";
 	status(undefined);
 }
 
