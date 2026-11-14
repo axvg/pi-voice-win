@@ -22,6 +22,13 @@ interface Config {
 }
 
 const CONFIG_PATH = join(homedir(), ".pi", "agent", "pi-voice-win.json");
+let userCfg = {};
+let configError: string | undefined;
+try {
+	if (existsSync(CONFIG_PATH)) userCfg = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
+} catch (e: any) {
+	configError = e.message;
+}
 const cfg: Config = {
 	model: "parakeet-v3",
 	threads: Math.max(2, Math.floor(cpus().length / 2)),
@@ -31,7 +38,7 @@ const cfg: Config = {
 	releaseMs: 350,
 	warmupRepeats: 2,
 	maxSec: 60,
-	...(existsSync(CONFIG_PATH) ? JSON.parse(readFileSync(CONFIG_PATH, "utf8")) : {}),
+	...userCfg,
 };
 if (cfg.live) cfg.decode = "worker";
 
@@ -333,6 +340,10 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", (_e, ctx) => {
 		ctxRef = ctx;
 		if (!ctx.hasUI) return;
+		if (configError) {
+			ctx.ui.notify(`voice: ${CONFIG_PATH}: ${configError}. Using defaults`, "error");
+			configError = undefined;
+		}
 		ctx.ui.setEditorComponent((tui, theme, kb) => new VoiceEditor(tui, theme, kb));
 		void loadDecoder();
 	});
