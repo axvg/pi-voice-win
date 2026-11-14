@@ -74,7 +74,6 @@ async function download(url: string, tmp: string, onProgress?: (msg: string) => 
 
 export interface Stt {
 	recognize(samples: Float32Array): string;
-	setLanguage(lang: string | undefined): void;
 }
 
 export async function createStt(name: ModelName, dir: string, lang?: string, numThreads = 4): Promise<Stt> {
@@ -90,7 +89,7 @@ export async function createStt(name: ModelName, dir: string, lang?: string, num
 			debug: 0,
 		},
 	});
-	let recognizer = new ns.OfflineRecognizer(build(lang));
+	const recognizer = new ns.OfflineRecognizer(build(lang));
 	return {
 		recognize(samples) {
 			if (samples.length < 1600) return "";
@@ -98,9 +97,6 @@ export async function createStt(name: ModelName, dir: string, lang?: string, num
 			s.acceptWaveform({ samples, sampleRate: 16000 });
 			recognizer.decode(s);
 			return String(recognizer.getResult(s).text ?? "").trim();
-		},
-		setLanguage(l) {
-			if (name === "canary-180m") recognizer = new ns.OfflineRecognizer(build(l));
 		},
 	};
 }
